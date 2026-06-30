@@ -253,6 +253,21 @@
 
     <style>
       /* ======================== CUSTOM CSS ======================== */
+      /* Map Lock & Scroll/Gesture Pass-through style */
+      #interactiveMap.map-locked {
+        pointer-events: none !important;
+        touch-action: auto !important;
+      }
+      #interactiveMap.map-locked .leaflet-marker-icon,
+      #interactiveMap.map-locked .leaflet-marker-shadow,
+      #interactiveMap.map-locked .leaflet-popup,
+      #interactiveMap.map-locked .leaflet-tooltip,
+      #interactiveMap.map-locked .leaflet-interactive,
+      #interactiveMap.map-locked .leaflet-control-container,
+      #interactiveMap.map-locked .leaflet-control {
+        pointer-events: auto !important;
+      }
+
       @keyframes tableFadeIn {
         from {
           opacity: 0;
@@ -967,6 +982,15 @@
         .card {
           padding: 1rem !important;
         }
+
+        /* Increase chart height by 50% on mobile mode (mode ponsel) */
+        main#dashboardContent:nth-of-type(1) > section#sectTrendFinansial:nth-of-type(2) > article:nth-of-type(1) {
+          min-height: 420px !important;
+        }
+        main#dashboardContent:nth-of-type(1) > section#sectTrendFinansial:nth-of-type(2) > article:nth-of-type(1) #trendChartWrapper {
+          height: 360px !important; /* Added 50% height from standard 240px min-height */
+          min-height: 360px !important;
+        }
       }
 
       /* ==========================================================================
@@ -1222,9 +1246,13 @@
         }
 
         /* Span elements wider at top levels */
-        .dashboard-layout-grid > header,
+        .dashboard-layout-grid > header {
+          grid-column: span 10 / span 10 !important;
+          order: -10 !important;
+        }
         .dashboard-layout-grid > #sectFilters {
           grid-column: span 10 / span 10 !important;
+          order: -9 !important;
         }
       }
 
@@ -1559,13 +1587,13 @@
       @media (max-width: 1023px) {
         /* Order for pure mobile flex layout */
         main#dashboardContent > header {
-          order: 1;
+          order: -10 !important;
+        }
+        main#dashboardContent > #sectFilters {
+          order: -9 !important;
         }
         main#dashboardContent > #sectSummaryCards {
           order: 2;
-        }
-        main#dashboardContent > #sectFilters {
-          order: 3;
         }
         main#dashboardContent > #sectTrendFinansial {
           order: 4;
@@ -2024,7 +2052,7 @@
       class="hidden w-full mx-auto flex flex-col gap-6 md:gap-8 transition-all z-10 relative"
     >
       <header
-        class="stagger-1 snap-center bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-violet-500/10 dark:from-blue-950/20 dark:via-slate-900/40 dark:to-violet-950/25 backdrop-blur-xl p-5 md:p-8 rounded-3xl shadow-xl border border-white/20 dark:border-slate-800/60 z-50 relative order-first md:order-none"
+        class="stagger-1 snap-center bg-gradient-to-r from-blue-500/10 via-indigo-500/5 to-violet-500/10 dark:from-blue-950/20 dark:via-slate-900/40 dark:to-violet-950/25 backdrop-blur-xl p-5 md:p-8 rounded-3xl shadow-xl border border-white/20 dark:border-slate-800/60 z-50 relative !order-first md:!order-first"
       >
         <div
           class="flex flex-col md:flex-row items-center justify-between gap-4"
@@ -6264,27 +6292,43 @@
           if (this.isProcessingQueue) return;
           this.isProcessingQueue = true;
 
-          const maxConcurrent = 3; // run up to 3 requests in parallel to prevent network congestion
-          while (this.syncQueue && this.syncQueue.length > 0) {
-            const batch = this.syncQueue.splice(0, maxConcurrent);
-            const promises = batch.map(async (item) => {
-              try {
-                await fetch(this.GOOGLE_SHEETS_WEBHOOK_POST, {
-                  method: "POST",
-                  mode: "no-cors",
-                  headers: { "Content-Type": "text/plain;charset=utf-8" },
-                  body: JSON.stringify({ action: item.action, id: item.id, record: item.recordData }),
-                });
-              } catch (e) {
-                console.warn("Error syncing to sheets for ID " + item.id + ":", e);
+          try {
+            while (this.syncQueue && this.syncQueue.length > 0) {
+              const qLen = this.syncQueue.length;
+              // Dynamic concurrency based on queue volume to finish bulk imports up to 10x faster
+              let maxConcurrent = 3;
+              if (qLen >= 100) {
+                maxConcurrent = 25;
+              } else if (qLen >= 30) {
+                maxConcurrent = 15;
+              } else if (qLen >= 8) {
+                maxConcurrent = 8;
               }
-            });
-            await Promise.all(promises);
-            // small breather between batches to be polite to Google Apps Script quota limits
-            await new Promise(r => setTimeout(r, 100));
-          }
 
-          this.isProcessingQueue = false;
+              const batch = this.syncQueue.splice(0, maxConcurrent);
+              const promises = batch.map(async (item) => {
+                try {
+                  await fetch(this.GOOGLE_SHEETS_WEBHOOK_POST, {
+                    method: "POST",
+                    mode: "no-cors",
+                    keepalive: true, // Reuse TCP/SSL connection for high-throughput speed
+                    headers: { "Content-Type": "text/plain;charset=utf-8" },
+                    body: JSON.stringify({ action: item.action, id: item.id, record: item.recordData }),
+                  });
+                } catch (e) {
+                  console.warn("Error syncing to sheets for ID " + item.id + ":", e);
+                }
+              });
+              await Promise.all(promises);
+              
+              // No artificial delay/breather on large batches to maximize throughput
+              if (qLen < 30) {
+                await new Promise(r => setTimeout(r, 50));
+              }
+            }
+          } finally {
+            this.isProcessingQueue = false;
+          }
         }
 
         async syncFromSheets(isBackground = false) {
@@ -7616,7 +7660,9 @@
 
         updateMapInteractions(isUnlocked) {
           if (!this.map) return;
+          const mapContainer = document.getElementById("interactiveMap");
           if (isUnlocked) {
+            if (mapContainer) mapContainer.classList.remove("map-locked");
             this.map.dragging.enable();
             if (this.map.scrollWheelZoom) this.map.scrollWheelZoom.enable();
             if (this.map.touchZoom) this.map.touchZoom.enable();
@@ -7624,6 +7670,7 @@
             if (this.map.boxZoom) this.map.boxZoom.enable();
             if (this.map.keyboard) this.map.keyboard.enable();
           } else {
+            if (mapContainer) mapContainer.classList.add("map-locked");
             this.map.dragging.disable();
             if (this.map.scrollWheelZoom) this.map.scrollWheelZoom.disable();
             if (this.map.touchZoom) this.map.touchZoom.disable();
@@ -7690,10 +7737,16 @@
 
             // Add outline
             this.outlineLayer = L.geoJSON(outlineGeojson, {
+              filter: (feature) => {
+                if (feature.properties && feature.properties.name) {
+                  return !feature.properties.name.toUpperCase().includes("MALANG");
+                }
+                return true;
+              },
               style: (feature) => {
                 let color = isDark ? '#4f46e5' : '#4f46e5';
                 let fillColor = 'transparent';
-                let fillOpacity = 0.6;
+                let fillOpacity = 0.30;
                 
                 if (feature.properties && feature.properties.name) {
                   const name = feature.properties.name.toUpperCase();
@@ -7712,18 +7765,18 @@
                   if (pic && picColors[pic]) {
                      fillColor = picColors[pic];
                      color = picColors[pic];
-                     fillOpacity = 0.70; // Meningkatkan dari 0.50 menjadi 0.70 agar lebih berwarna
+                     fillOpacity = 0.30;
                   }
                   
                   if (name.includes("JEMBER")) {
                      // Menggunakan referensi ID yang lebih robust
                      fillColor = "url(#jember-split)"; 
                      color = isDark ? "#06b6d4" : "#0891b2";
-                     fillOpacity = 0.55;
+                     fillOpacity = 0.30;
                   } else if (name.includes("PASURUAN")) {
                      fillColor = "url(#pasuruan-split)"; 
                      color = isDark ? "#84cc16" : "#65a30d";
-                     fillOpacity = 0.55;
+                     fillOpacity = 0.30;
                   }
                 }
 
@@ -7740,7 +7793,12 @@
               },
               onEachFeature: (feature, layer) => {
                 if (feature.properties && feature.properties.name) {
-                   const cleanName = feature.properties.name.replace('Kabupaten ', 'Kab. ');
+                   let cleanName = feature.properties.name;
+                   if (!cleanName.startsWith("Kab. ") && !cleanName.startsWith("Kabupaten ")) {
+                      cleanName = "Kab. " + cleanName;
+                   } else {
+                      cleanName = cleanName.replace('Kabupaten ', 'Kab. ');
+                   }
                    let offsetY = 0;
                    let offsetX = 0;
                    let tooltipContent = cleanName;
@@ -7947,7 +8005,7 @@
               if (isVisible) {
                 let styleUpdate = {
                   opacity: 1,
-                  fillOpacity: 0.50, // Meningkatkan opacity dasar
+                  fillOpacity: 0.30, // Mengatur opacity wilayah 30%
                   color: isDark ? "#4f46e5" : "#4f46e5",
                   fillColor: "transparent"
                 };
@@ -7965,7 +8023,7 @@
                   } else {
                     styleUpdate.fillColor = "url(#jember-split)";
                     styleUpdate.color = isDark ? "#06b6d4" : "#0891b2";
-                    styleUpdate.fillOpacity = 0.55;
+                    styleUpdate.fillOpacity = 0.30;
                   }
                 } else if (kabName.toUpperCase().includes("PASURUAN")) {
                   if (selectedPics.has("TRO PANDAAN") && !selectedPics.has("TRO PASURUAN") && selectedPics.size > 0) {
@@ -7977,7 +8035,7 @@
                   } else {
                     styleUpdate.fillColor = "url(#pasuruan-split)";
                     styleUpdate.color = isDark ? "#84cc16" : "#65a30d";
-                    styleUpdate.fillOpacity = 0.55;
+                    styleUpdate.fillOpacity = 0.30;
                   }
                 } else {
                   if (kabPics.length > 0 && picColors[kabPics[0]]) {
@@ -8671,9 +8729,12 @@
           const tfoot = document.getElementById("tenantTfoot");
           if (!tbody || !tfoot) return;
           
-          tbody.classList.remove("animate-table-fade");
-          void tbody.offsetWidth; // trigger reflow
-          tbody.classList.add("animate-table-fade");
+          if (!this.hasPlayedTenantFade) {
+            tbody.classList.remove("animate-table-fade");
+            void tbody.offsetWidth; // trigger reflow
+            tbody.classList.add("animate-table-fade");
+            this.hasPlayedTenantFade = true;
+          }
           
           tbody.innerHTML = "";
 
@@ -8817,9 +8878,12 @@
           if (!tbody) return;
 
           // Add a subtle fade-in effect to the table body on re-render/filter
-          tbody.classList.remove("animate-table-fade");
-          void tbody.offsetWidth; // trigger reflow
-          tbody.classList.add("animate-table-fade");
+          if (!this.hasPlayedGedungFade) {
+            tbody.classList.remove("animate-table-fade");
+            void tbody.offsetWidth; // trigger reflow
+            tbody.classList.add("animate-table-fade");
+            this.hasPlayedGedungFade = true;
+          }
 
           if (this.app.state.pageSize === undefined) {
             this.app.state.pageSize = "10";
@@ -9515,24 +9579,27 @@
             setTimeout(() => this.app.ui.adjustSummaryFontSize(), 50);
 
           // Force stagger entrance animation to replay on first load and refresh
-          const cards = document.querySelectorAll(
-            "#sectSummaryCards > article",
-          );
-          cards.forEach((card, i) => {
-            const cls = `stagger-${i + 1}`;
-            card.classList.remove(
-              cls,
-              "stagger-1",
-              "stagger-2",
-              "stagger-3",
-              "stagger-4",
-              "stagger-5",
-              "stagger-6",
+          if (!this.hasPlayedStagger) {
+            const cards = document.querySelectorAll(
+              "#sectSummaryCards > article",
             );
-            // Force browser reflow to restart CSS animation trigger
-            void card.offsetWidth;
-            card.classList.add(cls);
-          });
+            cards.forEach((card, i) => {
+              const cls = `stagger-${i + 1}`;
+              card.classList.remove(
+                cls,
+                "stagger-1",
+                "stagger-2",
+                "stagger-3",
+                "stagger-4",
+                "stagger-5",
+                "stagger-6",
+              );
+              // Force browser reflow to restart CSS animation trigger
+              void card.offsetWidth;
+              card.classList.add(cls);
+            });
+            this.hasPlayedStagger = true;
+          }
         }
       }
 
@@ -10954,6 +11021,8 @@
           const idxLat = getIndex(["Latitude", "lat"]);
           const idxLng = getIndex(["Longitude", "lng"]);
 
+          const existingGedungMap = new Map((this.app.state.gedungData || []).map(x => [x.id, x]));
+
           for (let i = 1; i < data.length; i++) {
             const row = data[i];
             if (!row) continue;
@@ -11011,7 +11080,7 @@
             let beb_ops = Utils.parseNumber(valAt(idxBebOps));
             let beb_share = Utils.parseNumber(valAt(idxBebShare));
 
-            const existing = this.app.state.gedungData.find((x) => x.id === id);
+            const existing = existingGedungMap.get(id);
             let lat = existing ? existing.lat : null;
             let lng = existing ? existing.lng : null;
 
