@@ -1,8 +1,0 @@
-{
-  "name": "Dashboard Profit Margin Jatim Timur",
-  "description": "Dashboard unit kerja untuk memantau profit margin gedung Area Jatim Timur.",
-  "requestFramePermissions": [],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
-}
