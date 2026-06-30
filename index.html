@@ -7479,7 +7479,9 @@
              });
           } else {
              // No specific building selected: focus on PIC region + its markers
-             if (selectedPics.size === 0) {
+             const allPics = this.app.state.allPics;
+             const isAllSelected = allPics.size > 0 && Array.from(allPics).every(p => selectedPics.has(p));
+             if (selectedPics.size === 0 || isAllSelected) {
                 if (this.outlineLayer.getBounds().isValid()) {
                    visibleBounds.extend(this.outlineLayer.getBounds());
                 }
@@ -7988,11 +7990,13 @@
           // Sync Map outline layer with filtered PICs
           if (this.outlineLayer) {
             const selectedPics = this.app.state.selectedPics;
+            const allPics = this.app.state.allPics;
             const isDark = document.documentElement.classList.contains("dark");
+            const isAllSelected = allPics.size > 0 && Array.from(allPics).every(p => selectedPics.has(p));
             this.outlineLayer.eachLayer((layer) => {
               const kabName = layer.feature.properties.name;
               const kabPics = this.getPicsForKabupaten(kabName);
-              let isVisible = selectedPics.size === 0; // if no filter, show all
+              let isVisible = selectedPics.size === 0 || isAllSelected; // if no filter or all active pics are selected, show all
               if (!isVisible) {
                 for (let p of kabPics) {
                   if (selectedPics.has(p)) {
