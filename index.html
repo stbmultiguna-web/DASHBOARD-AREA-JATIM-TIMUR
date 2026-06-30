@@ -5376,16 +5376,44 @@
             return true;
           });
           this.gedungData = cleanData;
+          
+          const prevAllPics = new Set(this.allPics);
+          const prevAllPeriodes = new Set(this.allPeriodes);
+
           this.allPics.clear();
           this.allPeriodes.clear();
           cleanData.forEach((g) => {
             this.allPics.add((g.pic || "TANPA PIC").trim().toUpperCase());
             this.allPeriodes.add(g.periode);
           });
-          if (this.selectedPics.size === 0 && this.allPics.size > 0)
+
+          // Check if previously selectedPics was identical to prevAllPics (meaning no active subset filter was active)
+          const hadNoPicFilter = prevAllPics.size > 0 && Array.from(prevAllPics).every(p => this.selectedPics.has(p)) && this.selectedPics.size === prevAllPics.size;
+
+          if (this.selectedPics.size === 0 || hadNoPicFilter) {
             this.selectedPics = new Set(this.allPics);
-          if (this.selectedPeriodes.size === 0 && this.allPeriodes.size > 0)
+          } else {
+            // Auto-select any newly added PICs
+            this.allPics.forEach((pic) => {
+              if (prevAllPics.size > 0 && !prevAllPics.has(pic)) {
+                this.selectedPics.add(pic);
+              }
+            });
+          }
+
+          const hadNoPeriodeFilter = prevAllPeriodes.size > 0 && Array.from(prevAllPeriodes).every(p => this.selectedPeriodes.has(p)) && this.selectedPeriodes.size === prevAllPeriodes.size;
+
+          if (this.selectedPeriodes.size === 0 || hadNoPeriodeFilter) {
             this.selectedPeriodes = new Set(this.allPeriodes);
+          } else {
+            // Auto-select any newly added Periodes
+            this.allPeriodes.forEach((per) => {
+              if (prevAllPeriodes.size > 0 && !prevAllPeriodes.has(per)) {
+                this.selectedPeriodes.add(per);
+              }
+            });
+          }
+
           this.applyFilters();
 
           if (window.mainApp && window.mainApp.cache) {
