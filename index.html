@@ -4236,6 +4236,27 @@
                  <br> Jika beban > 100%, ikon kritis <span class="text-rose-500">🚨</span> akan selalu muncul.
                </p>
             </div>
+
+            <div class="bg-slate-50 dark:bg-slate-800/40 p-5 rounded-3xl border border-slate-100 dark:border-slate-800">
+               <label class="label-xs mb-3 block text-amber-600 dark:text-amber-400">Ambang Batas Margin Rendah (%)</label>
+               <div class="flex items-center gap-5">
+                  <input 
+                    type="range" 
+                    min="0" 
+                    max="50" 
+                    value="10" 
+                    id="inputLowMarginThresholdRange" 
+                    oninput="window.updateLowMarginThresholdVal(this.value)"
+                    class="flex-1 h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                  >
+                  <div class="bg-amber-500 text-white font-black px-3 py-1.5 rounded-xl text-lg shadow-lg shadow-amber-500/20 min-w-[70px] text-center">
+                    <span id="lowMarginThresholdValDisplay">10</span>%
+                  </div>
+               </div>
+               <p class="text-[10px] font-bold text-slate-400 mt-4 leading-relaxed italic">
+                 *Warna kuning <span class="bg-amber-100/70 dark:bg-amber-950/40 text-amber-600 dark:text-amber-500 px-1 rounded font-bold">low-margin</span> akan diterapkan ke baris sel jika persentase margin keuntungan berada di bawah nilai independen ini.
+               </p>
+            </div>
             
             <div class="p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 rounded-2xl flex gap-3 items-center">
                <span class="text-2xl">⚡</span>
@@ -5307,6 +5328,9 @@
           const savedThreshold = localStorage.getItem("warningThreshold");
           this.warningThreshold = savedThreshold ? parseInt(savedThreshold, 10) : 90;
 
+          const savedLowMargin = localStorage.getItem("lowMarginThreshold");
+          this.lowMarginThreshold = savedLowMargin ? parseInt(savedLowMargin, 10) : 10;
+
           const savedDensity = localStorage.getItem("tableDensity");
           this.tableDensity = savedDensity || "comfortable";
 
@@ -5542,8 +5566,17 @@
         }
 
         async checkAppSession() {
-          // Otomatis langsung masuk ke dashboard
-          this.enterDashboard("admin@joker.com");
+          const savedUser = localStorage.getItem("currentUser");
+          const loginTime = localStorage.getItem("loginTimestamp");
+          if (
+            savedUser &&
+            loginTime &&
+            Date.now() - parseInt(loginTime) <= this.SESSION_LIMIT
+          ) {
+            this.enterDashboard(savedUser);
+          } else {
+            this.showLoginScreen();
+          }
         }
 
         showLoginScreen() {
@@ -9241,12 +9274,13 @@
             let isChecked = this.app.state.selectedGedungIds.has(g.id);
 
             let threshold = this.app.state.warningThreshold || 90;
+            let lowMarginThreshold = this.app.state.lowMarginThreshold !== undefined ? this.app.state.lowMarginThreshold : 10;
             let isDangerMargin = marginPersentase < 0;
-            let isLowMargin = marginPersentase >= 0 && marginPersentase < (100 - threshold);
+            let isLowMargin = marginPersentase >= 0 && marginPersentase < lowMarginThreshold;
 
             const warningBadge = isDangerMargin 
               ? `<span class="ml-1.5 text-rose-500 animate-pulse flex-shrink-0" title="KRITIS: Beban Melebihi Pendapatan!"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg></span>`
-              : (isLowMargin ? `<span class="ml-1.5 text-amber-500 flex-shrink-0" title="PERINGATAN: Beban Tinggi (> ${threshold}%)"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg></span>` : "");
+              : (isLowMargin ? `<span class="ml-1.5 text-amber-500 flex-shrink-0" title="PERINGATAN: Margin Rendah (< ${lowMarginThreshold}%)"><svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path></svg></span>` : "");
 
             let rowClass =
               "transition-colors hover:bg-slate-50/80 dark:hover:bg-slate-700/30";
@@ -10363,7 +10397,10 @@
             this.trendChartInstance.data.datasets = datasetsObj;
             this.trendChartInstance.options.scales.y.min = minY;
             this.trendChartInstance.options.scales.y.max = maxY;
-            this.trendChartInstance.update("none");
+            this.trendChartInstance.update({
+              duration: 1000,
+              easing: "easeInOutQuart"
+            });
             return;
           }
 
@@ -10376,6 +10413,10 @@
             options: {
               responsive: true,
               maintainAspectRatio: false,
+              animation: {
+                duration: 1200,
+                easing: "easeInOutQuart"
+              },
               layout: { padding: { bottom: 60, left: 10, right: 10 } },
               interaction: { mode: "index", intersect: false },
               plugins: {
@@ -12015,6 +12056,12 @@
               range.value = this.app.state.warningThreshold || 90;
               display.innerText = range.value;
             }
+            const lowRange = document.getElementById("inputLowMarginThresholdRange");
+            const lowDisplay = document.getElementById("lowMarginThresholdValDisplay");
+            if (lowRange && lowDisplay) {
+              lowRange.value = this.app.state.lowMarginThreshold !== undefined ? this.app.state.lowMarginThreshold : 10;
+              lowDisplay.innerText = lowRange.value;
+            }
           }
         }
         renderAdminMenuSettings() {
@@ -13421,6 +13468,15 @@
         mainApp.state.warningThreshold = num;
         localStorage.setItem("warningThreshold", num);
         const display = document.getElementById("thresholdValDisplay");
+        if (display) display.innerText = num;
+        mainApp.state.notify();
+      };
+
+      window.updateLowMarginThresholdVal = (val) => {
+        const num = parseInt(val, 10);
+        mainApp.state.lowMarginThreshold = num;
+        localStorage.setItem("lowMarginThreshold", num);
+        const display = document.getElementById("lowMarginThresholdValDisplay");
         if (display) display.innerText = num;
         mainApp.state.notify();
       };
